@@ -1,138 +1,168 @@
-# VPClient
+# mofh-vp-api-client
 
-VPClient is a powerful VistaPanel API client library written in PHP. It empowers developers to build custom control panels and seamlessly interact with VistaPanel, a robust web hosting control panel. With VPClient, you can manage websites, databases, domains, redirects, SSL certificates, and more, all programmatically using the VistaPanel API (Application Programming Interface).
+A PHP client for automating common tasks in **VistaPanel**, the hosting control panel used by some free-hosting providers. The library communicates with VistaPanel's web interface using authenticated HTTP requests and HTML parsing; it is **not an official, documented VistaPanel REST API**.
 
-VistaPanel is a web hosting control panel that allows users to manage their websites, databases, and other aspects of their hosting environment. A VistaPanel API client is a program that can interact with VistaPanel using the VistaPanel API (Application Programming Interface). The API provides a set of methods that can be used to manage various aspects of the hosting environment programmatically.
+The library provides a `VistapanelApi` class for account sessions, MySQL databases, domains, redirects, SSL certificates, DNS records, PHP settings, and hosting statistics.
 
-# API Documentation
+## Requirements
 
-The VistaPanel Users API allows you to interact with the VistaPanel hosting control panel using PHP. It provides methods for performing various tasks such as logging in, managing databases, working with domains, creating redirects, uploading SSL certificates, and more.
+- PHP with the **cURL** and **DOM** extensions enabled.
+- Network access to your VistaPanel control-panel URL.
+- A valid VistaPanel account or session cookie.
 
-## Class: VistapanelApi
+## Installation
 
-### Properties
+Download `api-client.php` into your project and include it:
 
-- `cpanelUrl`: The URL of the VistaPanel control panel.
-- `loggedIn`: Indicates whether the user is logged in or not.
-- `vistapanelSession`: The session ID obtained after logging in.
-- `vistapanelSessionName`: The name of the session cookie.
-- `vistapanelToken`: The token used for API requests.
-- `accountUsername`: The username of the logged-in account.
-- `cookie`: The cookie string used for authentication.
+```php
+require_once __DIR__ . '/api-client.php';
 
-### Methods
+$client = new VistapanelApi();
+```
 
-#### `setCpanelUrl($url)`
-
-Sets the URL of the VistaPanel control panel.
-
-- `$url` (string): The URL of the control panel.
-
-#### `login($username, $password, $theme)`
-
-Logs in to the VistaPanel control panel.
-
-- `$username` (string): The username of the account.
-- `$password` (string): The password of the account.
-- `$theme` (string): The theme to use after logging in (default: "PaperLantern").
-
-#### `createDatabase($dbname)`
-
-Creates a new database.
-
-- `$dbname` (string): The name of the database, without the account prefix.
-
-#### `listDatabases()`
-
-Returns an array of databases associated with the logged-in account.
-
-#### `deleteDatabase($database)`
-
-Deletes a database.
-
-- `$database` (string): The name of the database, without the account prefix.
-
-#### `getPhpmyadminLink($database)`
-
-Returns the phpMyAdmin link for a specific database.
-
-- `$database` (string): The name of the database, without the account prefix.
-
-#### `listDomains($option)`
-
-Returns an array of domains in a specific category.
-
-- `$option` (string): The category of domains to retrieve. Available options: "all," "addon," "sub," and "parked" (default: "all").
-
-#### `createRedirect($domainname, $target)`
-
-Creates a redirect for a domain.
-
-- `$domainname` (string): The name of the domain.
-- `$target` (string): The target URL for the redirect.
-
-#### `deleteRedirect($domainname)`
-
-Deletes a redirect for a domain.
-
-- `$domainname` (string): The name of the domain.
-
-#### `uploadKey($domainname, $key, $csr)`
-
-Uploads an SSL key for a domain.
-
-- `$domainname` (string): The name of the domain.
-- `$key` (string): The content of the SSL key file.
-- `$csr` (string): The content of the Certificate Signing Request (CSR) file.
-
-#### `uploadCert($domainname, $cert)`
-
-Uploads an SSL certificate for a domain.
-
-- `$domainname` (string): The name of the domain.
-- `$cert` (string): The content of the SSL certificate file.
-
-#### `getSSLPrivateKey($domain)`
-
-Get the currently installed SSL key for a domain.
-
-- `$domain` (string): The name of the domain.
-
-#### `getSSLCertificate($domain)`
-
-Get the currently installed SSL certificate for a domain.
-
-- `$domain` (string): The name of the domain.
-
-#### `getSoftaculousLink()`
-
-Returns the Softaculous link for the control panel.
-
-#### `logout()`
-
-Logs out from the control panel, and resets client configuration.
-
-#### `approveNotification()`
-
-Allows iFastNet to send you notifications about account suspensions, also unlocks the control panel.
-
-## Example Usage
+## Quick start
 
 ```php
 <?php
-require_once 'api-client.php';
+require_once __DIR__ . '/api-client.php';
 
-$vpClient = new VistapanelApi();
-$vpClient->setCpanelUrl('https://cpanel.example.com');
-$vpClient->login('username', 'password');
+$client = new VistapanelApi();
+$client->setCpanelUrl('https://cpanel.example.com');
 
-$databases = $vpClient->listDatabases();
-foreach ($databases as $database => $value) {
-    echo $database . "\n";
+try {
+    $client->login('your-username', 'your-password');
+
+    foreach ($client->listDatabases() as $database) {
+        echo $database . PHP_EOL;
+    }
+} finally {
+    // Call logout only if a session was successfully established.
+    // For example, call $client->logout() after successful use.
 }
-
-$vpClient->logout();
-?>
 ```
 
-Fork of [VistaPanel PHP API](https://github.com/oddmario/vistapanel-php-api).
+`login()` uses the `PaperLantern` theme by default. `setSession($session)` can be used when you already have a valid `PHPSESSID` session value. Setting a session does **not** set the account username, so username-dependent operations may require a normal login.
+
+## API reference
+
+The public PHP class is **`VistapanelApi`**, even though the repository is named `mofh-vp-api-client`. Method names below match the library's implementation and are case-sensitive as documented.
+
+### Connection and session
+
+| Method | Description |
+| --- | --- |
+| `setCpanelUrl($url)` | Set the HTTPS base URL for VistaPanel. |
+| `login($username, $password, $theme = 'PaperLantern')` | Log in using account credentials. |
+| `setSession($session)` | Use an existing VistaPanel session ID. |
+| `approveNotification()` | Submit the notification approval action. |
+| `disapproveNotification()` | Submit the notification disapproval action. |
+| `logout()` | Sign out and clear the client's session state. |
+
+### Databases
+
+| Method | Description |
+| --- | --- |
+| `createDatabase($dbname)` | Create a MySQL database. |
+| `listDatabases()` | Get database names as an array. |
+| `deleteDatabase($database)` | Delete a database by its unprefixed name. |
+| `getPhpmyadminLink($database)` | Retrieve the phpMyAdmin link associated with a database. |
+
+### Domains and redirects
+
+| Method | Description |
+| --- | --- |
+| `listDomains($option = 'all')` | List domains; options: `all`, `addon`, `sub`, or `parked`. |
+| `createRedirect($domainname, $target)` | Create a redirect from a domain to a target URL. |
+| `deleteRedirect($domainname)` | Remove a domain redirect. |
+| `showRedirect($domainname)` | Read a domain's configured redirect target. |
+
+### SSL certificates
+
+| Method | Description |
+| --- | --- |
+| `getPrivateKey($domainname)` | Retrieve the domain's configured SSL private key. **Treat the result as sensitive.** |
+| `getCertificate($domainname)` | Retrieve the installed SSL certificate. |
+| `uploadPrivateKey($domainname, $key, $csr = '')` | Upload an SSL private key and optional CSR. |
+| `uploadCertificate($domainname, $cert)` | Upload an SSL certificate. |
+| `deleteCertificate($domainname)` | Delete the domain's configured certificate. |
+
+### DNS records
+
+| Method | Description |
+| --- | --- |
+| `getCNAMErecords()` | List CNAME records. |
+| `createCNAMErecord($source, $domain, $dest)` | Create a CNAME record. |
+| `deleteCNAMErecord($source)` | Remove a CNAME record. |
+| `getMXrecords()` | List MX records. |
+| `createMXrecord($domain, $server, $priority)` | Create an MX record. |
+| `deleteMXrecord($domain, $srv, $priority)` | Remove an MX record. |
+| `getSPFrecords()` | List SPF records. |
+| `createSPFrecord($domain, $data)` | Create an SPF record. |
+| `deleteSPFrecord($domain, $data)` | Remove an SPF record. |
+| `createDNSRecord($recordType, $domain, $data, $destination = null, $priority = null)` | Generic DNS creation method supporting `MX`, `SPF`, and `CNAME`. **Prefer the type-specific methods**, which use the endpoint-specific form fields. |
+
+### Account, PHP configuration, and hosting tools
+
+| Method | Description |
+| --- | --- |
+| `getSoftaculousLink()` | Retrieve a Softaculous installer URL, when available. |
+| `showErrorPage($domainname, $option = '400')` | Read a custom error-page value; supported codes: `400`, `401`, `403`, `404`, `503`. |
+| `updateErrorPages($domainname, $v400 = '', $v401 = '', $v403 = '', $v404 = '', $v503 = '')` | Update domain error-page settings. |
+| `showPHPConfig($domainname, $option = 'display_errors')` | Read `display_errors`, `mbstring_http_input`, or `date_timezone`. |
+| `setPHPConfig($domainname, $displayerrors = '', $mbstringinput = '', $timezone = '')` | Change PHP configuration for a domain. |
+| `getUserStats($option = '')` | Get all account statistics or one statistic by its VistaPanel label. |
+| `changeEmail($newEmail, $confirmEmail)` | Submit an account email change. |
+| `addPasswordProtectionToFolder($domainName, $folderName, $password)` | Configure folder password protection. |
+
+## Examples
+
+### Create and list databases
+
+```php
+$client->createDatabase('example');
+print_r($client->listDatabases());
+```
+
+### Create a redirect
+
+```php
+$client->createRedirect('example.com', 'https://www.example.com');
+```
+
+### Add an MX record
+
+```php
+$client->createMXrecord('example.com', 'mail.example.com', 10);
+```
+
+### Get account statistics
+
+```php
+$stats = $client->getUserStats();
+print_r($stats);
+
+$plan = $client->getUserStats('Plan');
+```
+
+### Upload an SSL certificate
+
+```php
+$client->uploadPrivateKey('example.com', $privateKey, $csr);
+$client->uploadCertificate('example.com', $certificate);
+```
+
+## Notes and limitations
+
+- These operations automate the VistaPanel website, not a stable public REST contract. Changes to VistaPanel pages, form fields, or sessions can break some methods.
+- The available features depend on the hosting provider and account permissions.
+- Some methods return `true` once the HTTP request completes; this is **not always proof** that VistaPanel applied the requested change. Confirm important changes afterward.
+- The client throws exceptions in some authentication, validation, HTTP, and panel-error cases. Handle failures in application code.
+- Never commit credentials, session cookies, SSL private keys, or other secrets to version control.
+- Use HTTPS with a properly configured CA certificate bundle. SSL verification is enabled in the refactored client.
+- Test destructive operations such as database, certificate, or DNS deletion against a non-production account before relying on them.
+
+## Credits
+
+Based on the [VistaPanel PHP API](https://github.com/oddmario/vistapanel-php-api), originally developed by @oddmario, subsequently maintained by @GenerateApps, and revived by @RegenerateApps.
+
+This project is not affiliated with or endorsed by VistaPanel or hosting providers.
