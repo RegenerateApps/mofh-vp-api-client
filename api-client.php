@@ -1,9 +1,9 @@
 <?php
 /*
-VistaPanel Users API library
-Originally by @oddmario, maintained by @GenerateApps
+mofh-vp-api-client PHP wrapper code
+Originally by @oddmario, maintained by @GenerateApps, revived by @RegenerateApps
 */
-error_reporting(E_ERROR | E_PARSE);
+// Error reporting is configured by the application, not the library.
 
 /* Backwards compatibility for PHP 8 functions */
 if(!function_exists('str_contains')) {
@@ -30,6 +30,19 @@ class VistapanelApi
     private $accountUsername = "";
     private $cookie = "";
 
+    private function parseHtml($html)
+    {
+        $dom = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        try {
+            $dom->loadHTML($html);
+        } finally {
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+        }
+        return $dom;
+    }
+
     private function getLineWithString($content, $str)
     {
         $lines = explode("\n", $content);
@@ -51,6 +64,11 @@ class VistapanelApi
     )
     {
         $ch = curl_init($url);
+        if ($ch === false) {
+            throw new RuntimeException("Unable to initialize cURL.");
+        }
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         if ($post) {
             curl_setopt($ch, CURLOPT_POST, 1);
@@ -60,19 +78,27 @@ class VistapanelApi
             curl_setopt($ch, CURLOPT_HEADER, true);
         }
         curl_setopt($ch, CURLOPT_HTTPHEADER, $httpheader);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
         curl_setopt(
             $ch,
             CURLOPT_USERAGENT,
-            "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.13) Gecko/20080311 Firefox/2.0.0.13"
+            "VistaPanelApi/1.0"
         );
         if ($followlocation) {
             curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
         }
         $result = curl_exec($ch);
         $resultUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        $curlError = curl_error($ch);
+        $status = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         curl_close($ch);
+        if ($result === false) {
+            throw new RuntimeException("VistaPanel request failed: " . $curlError);
+        }
+        if ($status >= 400) {
+            throw new RuntimeException("VistaPanel returned HTTP " . $status);
+        }
 
         //Check for errors
         if (str_contains($resultUrl, $this->cpanelUrl . "/panel/indexpl.php?option=error")) {
@@ -138,10 +164,7 @@ class VistapanelApi
         $this->checkLogin();
         $this->checkForEmptyParams(compact("url"));
         $html = $this->simpleCurl($url, false, [], false, [$this->cookie,]);
-        $dom = new DOMDocument();
-        libxml_use_internal_errors(true);
-        $dom->loadHTML($html);
-        libxml_clear_errors();
+        $dom = $this->parseHtml($html);
         if (empty($id)) {
             $header = $dom->getElementsByTagName("th");
             $detail = $dom->getElementsByTagName("td");
@@ -149,8 +172,14 @@ class VistapanelApi
             $header = $dom->getElementById($id)->getElementsByTagName("th");
             $detail = $dom->getElementById($id)->getElementsByTagName("td");
         }
+        $aDataTableHeaderHTML = [];
+        $aDataTableDetailHTML = [];
+        $aTempData = [];
         foreach ($header as $nodeHeader) {
             $aDataTableHeaderHTML[] = trim($nodeHeader->textContent);
+        }
+        if ($aDataTableHeaderHTML === []) {
+            return [];
         }
         $i = 0;
         $j = 0;
@@ -173,6 +202,9 @@ class VistapanelApi
         $doc = new DOMDocument();
         $doc->loadHTML($html);
         $table = $doc->getElementById("stats");
+        if ($table === null) {
+            return [];
+        }
         $rows = $table->getElementsByTagName("tr");
 
         $data = [];
@@ -192,7 +224,10 @@ class VistapanelApi
     public function setCpanelUrl($url = "")
     {
         $this->checkForEmptyParams(compact("url"));
-        $this->cpanelUrl = $url;
+        if (!filter_var($url, FILTER_VALIDATE_URL) || parse_url($url, PHP_URL_SCHEME) !== "https") {
+            throw new InvalidArgumentException("Panel URL must be a valid HTTPS URL.");
+        }
+        $this->cpanelUrl = rtrim($url, "/");
         return true;
     }
 
@@ -213,6 +248,9 @@ class VistapanelApi
     public function login($username = "", $password = "", $theme = "PaperLantern")
     {
         $this->checkCpanelUrl();
+        if ($this->loggedIn) {
+            throw new Exception("You are already logged in.");
+        }
         $this->checkForEmptyParams(compact("username", "password"));
         $login = $this->simpleCurl(
             $this->cpanelUrl . "/login.php",
@@ -233,9 +271,7 @@ class VistapanelApi
             parse_str($item, $cookie);
             $cookies = array_merge($cookies, $cookie);
         }
-        if ($this->loggedIn === true) {
-            throw new Exception("You are already logged in.");
-        }
+
         if (empty($cookies[$this->vistapanelSessionName])) {
             throw new Exception("Unable to login.");
         }
@@ -283,6 +319,7 @@ class VistapanelApi
 
     public function listDatabases()
     {
+        $this->checkLogin();
         $databases = [];
         $aDataTableDetailHTML = $this->getTableElements($this->cpanelUrl . "/panel/indexpl.php?option=pma");
         foreach ($aDataTableDetailHTML as $database) {
@@ -295,7 +332,7 @@ class VistapanelApi
     {
         $this->checkLogin();
         $this->checkForEmptyParams(compact("database"));
-        if (!in_array($database, $this->listDatabases())) {
+        if (!in_array($database, $this->listDatabases(), true)) {
             throw new Exception("The database " . $database . " doesn't exist.");
         }
         $this->simpleCurl(
@@ -315,14 +352,11 @@ class VistapanelApi
     {
         $this->checkLogin();
         $this->checkForEmptyParams(compact("database"));
-        if (!array_key_exists($database, $this->listDatabases())) {
+        if (!in_array($database, $this->listDatabases(), true)) {
             throw new Exception("The database " . $database . " doesn't exist.");
         }
         $html = $this->simpleCurl($this->cpanelUrl."/panel/indexpl.php?option=pma", false, [], false, [$this->cookie]);
-        $dom = new DOMDocument();
-        libxml_use_internal_errors(true);
-        $dom->loadHTML($html);
-        libxml_clear_errors();
+        $dom = $this->parseHtml($html);
         $links = $dom->getElementsByTagName("a");
         foreach ($links as $link) {
             if (str_contains($link->getAttribute("href"), "&db=" . $this->accountUsername . "_" . $database)) {
@@ -413,9 +447,7 @@ class VistapanelApi
 
 
         $xpath = '//*[@id="content"]/div/div[1]/table/tbody/tr[2]/td[1]/b[2]';
-        $dom = new DOMDocument();
-        libxml_use_internal_errors(true);
-        $dom->loadHTML($html);
+        $dom = $this->parseHtml($html);
 
         $domxpath = new DOMXPath($dom);
 
@@ -434,9 +466,7 @@ class VistapanelApi
             false,
             [$this->cookie]
         );
-        $dom = new DOMDocument();
-        libxml_use_internal_errors(true);
-        $dom->loadHTML($html);
+        $dom = $this->parseHtml($html);
 
         $xpath = new DOMXPath($dom);
 
@@ -455,9 +485,7 @@ class VistapanelApi
             false,
             [$this->cookie]
         );
-        $dom = new DOMDocument();
-        libxml_use_internal_errors(true);
-        $dom->loadHTML($html);
+        $dom = $this->parseHtml($html);
 
         $xpath = new DOMXPath($dom);
 
@@ -551,9 +579,7 @@ class VistapanelApi
             false,
             [$this->cookie]
         );
-        $dom = new DOMDocument();
-        libxml_use_internal_errors(true);
-        $dom->loadHTML($html);
+        $dom = $this->parseHtml($html);
 
         $domxpath = new DOMXPath($dom);
 
@@ -606,9 +632,7 @@ class VistapanelApi
             false,
             [$this->cookie]
         );
-        $dom = new DOMDocument();
-        libxml_use_internal_errors(true);
-        $dom->loadHTML($html);
+        $dom = $this->parseHtml($html);
         $domxpath = new DOMXPath($dom);
         $values = $domxpath->query($xpath);
 
@@ -643,6 +667,7 @@ class VistapanelApi
 
     public function getUserStats($option = "")
     {
+        $this->checkLogin();
         /*
         $option: String Variable
             - Use exactly VistaPanel Statistics text. *CASE SENSITIVE*
@@ -750,13 +775,8 @@ class VistapanelApi
             false,
             [$this->cookie]
         );
-        $dom = new DOMDocument();
-        libxml_use_internal_errors(true);
-        $dom->loadHTML($html);
-        libxml_clear_errors();
+        $dom = $this->parseHtml($html);
 
-        $dom = new DOMDocument();
-        $dom->loadHTML($html);
         $anchorTags = $dom->getElementsByTagName('a');
 
         foreach ($anchorTags as $anchorTag) {
@@ -771,6 +791,9 @@ class VistapanelApi
         /* $source: The record source */
         $this->checkLogin();
         $link = $this->getCNAMEDeletionlink($source);
+        if ($link === null) {
+            throw new RuntimeException("CNAME record not found.");
+        }
         $this->simpleCurl(
             $this->cpanelUrl . '/panel/' . $link,
             false,
@@ -865,13 +888,8 @@ class VistapanelApi
             false,
             [$this->cookie]
         );
-        $dom = new DOMDocument();
-        libxml_use_internal_errors(true);
-        $dom->loadHTML($html);
-        libxml_clear_errors();
+        $dom = $this->parseHtml($html);
 
-        $dom = new DOMDocument();
-        $dom->loadHTML($html);
         $anchorTags = $dom->getElementsByTagName('a');
 
         foreach ($anchorTags as $anchorTag) {
@@ -896,6 +914,9 @@ class VistapanelApi
             */
         $this->checkLogin();
         $link = $this->getMXDeletionlink($domain, $srv, $priority);
+        if ($link === null) {
+            throw new RuntimeException("MX record not found.");
+        }
         $this->simpleCurl($this->cpanelUrl . '/panel/' . $link, false, [], false, [$this->cookie]);
         return true;
     }
@@ -977,13 +998,8 @@ class VistapanelApi
             false,
             [$this->cookie]
         );
-        $dom = new DOMDocument();
-        libxml_use_internal_errors(true);
-        $dom->loadHTML($html);
-        libxml_clear_errors();
+        $dom = $this->parseHtml($html);
 
-        $dom = new DOMDocument();
-        $dom->loadHTML($html);
         $anchorTags = $dom->getElementsByTagName('a');
 
         foreach ($anchorTags as $anchorTag) {
@@ -1003,6 +1019,9 @@ class VistapanelApi
             */
         $this->checkLogin();
         $link = $this->getSPFDeletionlink($domain, $data);
+        if ($link === null) {
+            throw new RuntimeException("SPF record not found.");
+        }
         $this->simpleCurl($this->cpanelUrl . '/panel/' . $link, false, [], false, [$this->cookie]);
         return true;
     }
